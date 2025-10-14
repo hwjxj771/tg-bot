@@ -1,7 +1,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 
 // Твой токен (пока оставь такой, потом заменим)
-const token = 'ТВОЙ_ТОКЕН_ЗДЕСЬ';
+const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
 // Ссылка на твою игру
