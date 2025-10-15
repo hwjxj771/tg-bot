@@ -22,14 +22,12 @@ const keyboard = {
 };
     
 
-    // Отправляем 3 фотки с текстом на последней
-    bot.sendPhoto(chatId, 'https://raw.githubusercontent.com/hwjxj771/tg-bot/main/bot1.png');
-    bot.sendPhoto(chatId, 'https://raw.githubusercontent.com/hwjxj771/tg-bot/main/bot2.png');
-    bot.sendPhoto(chatId, 'https://raw.githubusercontent.com/hwjxj771/tg-bot/main/bot3.png', {
-        caption: 'Скорее заходи в игру и получай подарки! Кликер! Кейсы! CRUSH MODE! И другие режимы!                        💫 Канал для получения специальных промо и новостей игры - @gift_run',
+    // Отправляем одну фотку с текстом и кнопкой
+    bot.sendPhoto(chatId, 'https://raw.githubusercontent.com/hwjxj771/tg-bot/main/bot4.png', {
+        caption: 'Скорее заходи в игру и получай подарки!                       Кликер! Кейсы! CRUSH MODE! И другие режимы!💫                         Канал для получения специальных промо и новостей игры - @gift_run',
         reply_markup: keyboard
     });
-
+    
 });
 
 console.log('Бот запущен и ждет сообщения...');
