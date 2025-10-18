@@ -7,29 +7,25 @@ const bot = new TelegramBot(token, { polling: true });
 
 const GAME_URL = 'https://t.me/gift_run_bot/tgiftiF12QIDdag';
 
-// Проверяем наличие DATABASE_URL
-if (!process.env.DATABASE_URL) {
-  console.error('❌ DATABASE_URL не найден! Проверь переменные окружения в Railway.');
-}
-
-// Настройка базы данных PostgreSQL
+// Подключение к базе данных
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  connectionString: "postgresql://postgres:XxYjmVHUnYwiOGusWfjLCPajPtwVKLkM@postgres.railway.internal:5432/railway",
+  ssl: false // Отключаем SSL для внутренних подключений
 });
 
-// Простая функция для работы с базой (без сложных запросов)
+// Инициализация базы данных
 async function initDatabase() {
   try {
     const client = await pool.connect();
     console.log('✅ Подключение к базе данных успешно');
     
-    // Простая таблица
+    // Создаем таблицу с username
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         chat_id BIGINT PRIMARY KEY,
+        username VARCHAR(255),
+        first_name VARCHAR(255),
+        last_name VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -40,16 +36,24 @@ async function initDatabase() {
   }
 }
 
-// Добавляем пользователя
-async function addUser(chatId) {
+// Добавляем пользователя с username
+async function addUser(chatId, userInfo = {}) {
   try {
+    const { username, first_name, last_name } = userInfo;
     await pool.query(
-      `INSERT INTO users (chat_id) VALUES ($1) ON CONFLICT (chat_id) DO NOTHING`,
-      [chatId]
+      `INSERT INTO users (chat_id, username, first_name, last_name) 
+       VALUES ($1, $2, $3, $4) 
+       ON CONFLICT (chat_id) 
+       DO UPDATE SET 
+         username = EXCLUDED.username,
+         first_name = EXCLUDED.first_name,
+         last_name = EXCLUDED.last_name`,
+      [chatId, username, first_name, last_name]
     );
+    console.log(`✅ Пользователь добавлен: ${username || chatId}`);
     return true;
   } catch (error) {
-    console.error('Ошибка добавления пользователя:', error.message);
+    console.error('❌ Ошибка добавления пользователя:', error.message);
     return false;
   }
 }
@@ -57,11 +61,14 @@ async function addUser(chatId) {
 // Получаем всех пользователей
 async function getAllUsers() {
   try {
-    const result = await pool.query('SELECT chat_id FROM users');
+    const result = await pool.query('SELECT chat_id, username FROM users');
     console.log(`📊 Найдено пользователей в базе: ${result.rows.length}`);
-    return result.rows.map(row => row.chat_id);
+    return result.rows.map(row => ({
+      chatId: row.chat_id,
+      username: row.username
+    }));
   } catch (error) {
-    console.error('Ошибка получения пользователей:', error.message);
+    console.error('❌ Ошибка получения пользователей:', error.message);
     return [];
   }
 }
@@ -72,7 +79,7 @@ async function getUserCount() {
     const result = await pool.query('SELECT COUNT(*) as count FROM users');
     return parseInt(result.rows[0].count);
   } catch (error) {
-    console.error('Ошибка подсчета пользователей:', error.message);
+    console.error('❌ Ошибка подсчета пользователей:', error.message);
     return 0;
   }
 }
@@ -81,8 +88,7 @@ async function getUserCount() {
 initDatabase();
 
 // ВРЕМЕННО: разрешаем всем запускать команды для тестирования
-// Позже замени на свой chatId
-const ADMIN_IDS = [7002066167];
+const ADMIN_IDS = [7002066167]; // Замени на свой chatId
 
 // Команда для получения chatId
 bot.onText(/\/myid/, async (msg) => {
@@ -98,7 +104,13 @@ bot.onText(/\/checkdb/, async (msg) => {
   try {
     const userCount = await getUserCount();
     const allUsers = await getAllUsers();
-    bot.sendMessage(chatId, `✅ База работает\n👥 Пользователей: ${userCount}\n📝 Список: ${allUsers.join(', ')}`);
+    
+    let userList = 'Список пользователей:\n';
+    allUsers.forEach(user => {
+      userList += `• @${user.username || 'без username'} (${user.chatId})\n`;
+    });
+    
+    bot.sendMessage(chatId, `✅ База работает\n👥 Пользователей: ${userCount}\n\n${userList}`);
   } catch (error) {
     bot.sendMessage(chatId, `❌ Ошибка базы: ${error.message}`);
   }
@@ -107,11 +119,12 @@ bot.onText(/\/checkdb/, async (msg) => {
 // Основная команда /start
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
+  const userInfo = msg.from; // Информация о пользователе
   
-  console.log(`Новый пользователь: ${chatId}`);
+  console.log(`Новый пользователь: ${userInfo.username || 'без username'} (${chatId})`);
   
-  // Пытаемся сохранить в базу
-  const dbSuccess = await addUser(chatId);
+  // Сохраняем в базу с username
+  const dbSuccess = await addUser(chatId, userInfo);
   const userCount = await getUserCount();
   
   console.log(`Сохранение в базу: ${dbSuccess ? 'успешно' : 'ошибка'}, всего пользователей: ${userCount}`);
@@ -159,19 +172,19 @@ async function sendBroadcastMessage() {
   let successCount = 0;
   let errorCount = 0;
   
-  for (const chatId of allUsers) {
+  for (const user of allUsers) {
     try {
-      await bot.sendMessage(chatId, message, {
+      await bot.sendMessage(user.chatId, message, {
         reply_markup: keyboard
       });
       successCount++;
-      console.log(`✅ Отправлено пользователю: ${chatId}`);
+      console.log(`✅ Отправлено пользователю: @${user.username || user.chatId}`);
       
       // Задержка
       await new Promise(resolve => setTimeout(resolve, 100));
       
     } catch (error) {
-      console.error(`❌ Ошибка пользователю ${chatId}:`, error.message);
+      console.error(`❌ Ошибка пользователю @${user.username || user.chatId}:`, error.message);
       errorCount++;
     }
   }
@@ -180,11 +193,16 @@ async function sendBroadcastMessage() {
   return { successCount, errorCount, totalUsers: allUsers.length };
 }
 
-// Команда для рассылки (ВРЕМЕННО для всех)
+// Команда для рассылки (ТОЛЬКО для админа)
 bot.onText(/\/broadcast/, async (msg) => {
   const chatId = msg.chat.id;
   
-  console.log(`Запуск рассылки пользователем: ${chatId}`);
+  // Проверяем что команду отправил администратор
+  if (!ADMIN_IDS.includes(chatId)) {
+    return bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+  }
+  
+  console.log(`Запуск рассылки администратором: ${chatId}`);
   
   const processingMsg = await bot.sendMessage(chatId, '🔄 Запускаю рассылку всем пользователям...');
   
@@ -200,4 +218,3 @@ bot.onText(/\/broadcast/, async (msg) => {
 });
 
 console.log('🤖 Бот запущен и ждет сообщения...');
-console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'есть' : 'нет');
