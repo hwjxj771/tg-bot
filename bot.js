@@ -1,6 +1,17 @@
 const TelegramBot = require('node-telegram-bot-api');
 const { Pool } = require('pg');
 
+// Твой токен бота
+const token = process.env.BOT_TOKEN;
+const bot = new TelegramBot(token, { polling: true });
+
+const GAME_URL = 'https://t.me/gift_run_bot/tgiftiF12QIDdag';
+
+// Проверяем наличие DATABASE_URL
+if (!process.env.DATABASE_URL) {
+  console.error('❌ DATABASE_URL не найден! Проверь переменные окружения в Railway.');
+}
+
 // Настройка базы данных PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -9,92 +20,68 @@ const pool = new Pool({
   }
 });
 
-// Инициализация базы данных
+// Простая функция для работы с базой (без сложных запросов)
 async function initDatabase() {
   try {
     const client = await pool.connect();
+    console.log('✅ Подключение к базе данных успешно');
+    
+    // Простая таблица
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         chat_id BIGINT PRIMARY KEY,
-        username VARCHAR(255),
-        first_name VARCHAR(255),
-        last_name VARCHAR(255),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    console.log('✅ База данных готова');
+    console.log('✅ Таблица users готова');
     client.release();
   } catch (error) {
-    console.error('❌ Ошибка базы данных:', error);
+    console.error('❌ Ошибка базы данных:', error.message);
   }
 }
 
-// Добавление пользователя
-async function addUser(chatId, userInfo = {}) {
+// Добавляем пользователя
+async function addUser(chatId) {
   try {
-    const { username, first_name, last_name } = userInfo;
     await pool.query(
-      `INSERT INTO users (chat_id, username, first_name, last_name, last_active) 
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-       ON CONFLICT (chat_id) 
-       DO UPDATE SET 
-         username = EXCLUDED.username,
-         first_name = EXCLUDED.first_name,
-         last_name = EXCLUDED.last_name,
-         last_active = CURRENT_TIMESTAMP`,
-      [chatId, username, first_name, last_name]
+      `INSERT INTO users (chat_id) VALUES ($1) ON CONFLICT (chat_id) DO NOTHING`,
+      [chatId]
     );
     return true;
   } catch (error) {
-    console.error('Ошибка добавления пользователя:', error);
+    console.error('Ошибка добавления пользователя:', error.message);
     return false;
   }
 }
 
-// Получение всех пользователей
+// Получаем всех пользователей
 async function getAllUsers() {
   try {
     const result = await pool.query('SELECT chat_id FROM users');
+    console.log(`📊 Найдено пользователей в базе: ${result.rows.length}`);
     return result.rows.map(row => row.chat_id);
   } catch (error) {
-    console.error('Ошибка получения пользователей:', error);
+    console.error('Ошибка получения пользователей:', error.message);
     return [];
   }
 }
 
-// Получение количества пользователей
+// Получаем количество пользователей
 async function getUserCount() {
   try {
     const result = await pool.query('SELECT COUNT(*) as count FROM users');
     return parseInt(result.rows[0].count);
   } catch (error) {
-    console.error('Ошибка подсчета пользователей:', error);
+    console.error('Ошибка подсчета пользователей:', error.message);
     return 0;
   }
 }
 
-// Удаление пользователя
-async function removeUser(chatId) {
-  try {
-    await pool.query('DELETE FROM users WHERE chat_id = $1', [chatId]);
-    return true;
-  } catch (error) {
-    console.error('Ошибка удаления пользователя:', error);
-    return false;
-  }
-}
-
-// Основной код бота
-const token = process.env.BOT_TOKEN;
-const bot = new TelegramBot(token, { polling: true });
-
-const GAME_URL = 'https://t.me/gift_run_bot/tgiftiF12QIDdag';
-
 // Инициализируем базу данных при запуске
 initDatabase();
 
-// ЗАМЕНИ ЭТОТ НОМЕР НА СВОЙ CHAT_ID (узнаешь через /myid)
+// ВРЕМЕННО: разрешаем всем запускать команды для тестирования
+// Позже замени на свой chatId
 const ADMIN_IDS = [7002066167];
 
 // Команда для получения chatId
@@ -105,28 +92,29 @@ bot.onText(/\/myid/, async (msg) => {
   console.log(`ChatId пользователя: ${chatId}`);
 });
 
-// Команда статистики для админа
-bot.onText(/\/stats/, async (msg) => {
+// Команда для проверки базы данных
+bot.onText(/\/checkdb/, async (msg) => {
   const chatId = msg.chat.id;
-  
-  if (!ADMIN_IDS.includes(chatId)) {
-    return bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+  try {
+    const userCount = await getUserCount();
+    const allUsers = await getAllUsers();
+    bot.sendMessage(chatId, `✅ База работает\n👥 Пользователей: ${userCount}\n📝 Список: ${allUsers.join(', ')}`);
+  } catch (error) {
+    bot.sendMessage(chatId, `❌ Ошибка базы: ${error.message}`);
   }
-  
-  const userCount = await getUserCount();
-  bot.sendMessage(chatId, `📊 Статистика бота:\n\n👥 Всего пользователей: ${userCount}`);
 });
 
 // Основная команда /start
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
-  const userInfo = msg.from;
   
-  // Сохраняем пользователя в базу
-  await addUser(chatId, userInfo);
+  console.log(`Новый пользователь: ${chatId}`);
+  
+  // Пытаемся сохранить в базу
+  const dbSuccess = await addUser(chatId);
   const userCount = await getUserCount();
   
-  console.log(`Новый пользователь: ${chatId}, всего в базе: ${userCount}`);
+  console.log(`Сохранение в базу: ${dbSuccess ? 'успешно' : 'ошибка'}, всего пользователей: ${userCount}`);
   
   // Создаем кнопку
   const keyboard = {
@@ -161,6 +149,11 @@ async function sendBroadcastMessage() {
   // Получаем всех пользователей из базы
   const allUsers = await getAllUsers();
   
+  if (allUsers.length === 0) {
+    console.log('❌ Нет пользователей для рассылки');
+    return { successCount: 0, errorCount: 0, totalUsers: 0 };
+  }
+  
   console.log(`📨 Начинаю рассылку для ${allUsers.length} пользователей...`);
   
   let successCount = 0;
@@ -172,19 +165,14 @@ async function sendBroadcastMessage() {
         reply_markup: keyboard
       });
       successCount++;
+      console.log(`✅ Отправлено пользователю: ${chatId}`);
       
-      // Задержка чтобы не превысить лимиты Telegram API
+      // Задержка
       await new Promise(resolve => setTimeout(resolve, 100));
       
     } catch (error) {
-      console.error(`❌ Ошибка отправки пользователю ${chatId}:`, error.message);
+      console.error(`❌ Ошибка пользователю ${chatId}:`, error.message);
       errorCount++;
-      
-      // Если пользователь заблокировал бота, удаляем из базы
-      if (error.response?.statusCode === 403) {
-        await removeUser(chatId);
-        console.log(`🗑️ Удален заблокировавший пользователь: ${chatId}`);
-      }
     }
   }
   
@@ -192,13 +180,11 @@ async function sendBroadcastMessage() {
   return { successCount, errorCount, totalUsers: allUsers.length };
 }
 
-// Команда для рассылки (только для админа)
+// Команда для рассылки (ВРЕМЕННО для всех)
 bot.onText(/\/broadcast/, async (msg) => {
   const chatId = msg.chat.id;
   
-  if (!ADMIN_IDS.includes(chatId)) {
-    return bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
-  }
+  console.log(`Запуск рассылки пользователем: ${chatId}`);
   
   const processingMsg = await bot.sendMessage(chatId, '🔄 Запускаю рассылку всем пользователям...');
   
@@ -214,6 +200,4 @@ bot.onText(/\/broadcast/, async (msg) => {
 });
 
 console.log('🤖 Бот запущен и ждет сообщения...');
-
-// Экспортируем функцию для внешнего использования
-module.exports = { sendBroadcastMessage }; 
+console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'есть' : 'нет');
