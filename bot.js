@@ -10,8 +10,16 @@ const GAME_URL = 'https://t.me/gift_run_bot/tgiftiF12QIDdag';
 // Подключение к базе данных
 const pool = new Pool({
   connectionString: "postgresql://postgres:XxYjmVHUnYwiOGusWfjLCPajPtwVKLkM@postgres.railway.internal:5432/railway",
-  ssl: false // Отключаем SSL для внутренних подключений
+  ssl: false
 });
+
+// ТВОЙ АЙДИ - только ты имеешь доступ к командам
+const ADMIN_IDS = [7002066167];
+
+// Проверка прав доступа
+function isAdmin(chatId) {
+  return ADMIN_IDS.includes(chatId);
+}
 
 // Инициализация базы данных
 async function initDatabase() {
@@ -19,7 +27,6 @@ async function initDatabase() {
     const client = await pool.connect();
     console.log('✅ Подключение к базе данных успешно');
     
-    // Создаем таблицу с username
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         chat_id BIGINT PRIMARY KEY,
@@ -87,47 +94,54 @@ async function getUserCount() {
 // Инициализируем базу данных при запуске
 initDatabase();
 
-// ВРЕМЕННО: разрешаем всем запускать команды для тестирования
-const ADMIN_IDS = [7002066167]; // Замени на свой chatId
-
-// Команда для получения chatId
+// Команда для получения chatId (ТОЛЬКО для админа)
 bot.onText(/\/myid/, async (msg) => {
   const chatId = msg.chat.id;
+  
+  if (!isAdmin(chatId)) {
+    return bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+  }
+  
   const userCount = await getUserCount();
   bot.sendMessage(chatId, `📊 Ваш chatId: ${chatId}\n👥 Всего пользователей в базе: ${userCount}`);
-  console.log(`ChatId пользователя: ${chatId}`);
+  console.log(`Админ запросил ID: ${chatId}`);
 });
 
-// Команда для проверки базы данных
+// Команда для проверки базы данных (ТОЛЬКО для админа)
 bot.onText(/\/checkdb/, async (msg) => {
   const chatId = msg.chat.id;
+  
+  if (!isAdmin(chatId)) {
+    return bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+  }
+  
   try {
     const userCount = await getUserCount();
     const allUsers = await getAllUsers();
     
-    let userList = 'Список пользователей:\n';
-    allUsers.forEach(user => {
-      userList += `• @${user.username || 'без username'} (${user.chatId})\n`;
+    let userList = '📋 Список пользователей:\n\n';
+    allUsers.forEach((user, index) => {
+      userList += `${index + 1}. @${user.username || 'без username'} (${user.chatId})\n`;
     });
     
-    bot.sendMessage(chatId, `✅ База работает\n👥 Пользователей: ${userCount}\n\n${userList}`);
+    bot.sendMessage(chatId, `✅ База данных работает\n👥 Всего пользователей: ${userCount}\n\n${userList}`);
   } catch (error) {
     bot.sendMessage(chatId, `❌ Ошибка базы: ${error.message}`);
   }
 });
 
-// Основная команда /start
+// Основная команда /start (доступна всем)
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
-  const userInfo = msg.from; // Информация о пользователе
+  const userInfo = msg.from;
   
   console.log(`Новый пользователь: ${userInfo.username || 'без username'} (${chatId})`);
   
   // Сохраняем в базу с username
-  const dbSuccess = await addUser(chatId, userInfo);
+  await addUser(chatId, userInfo);
   const userCount = await getUserCount();
   
-  console.log(`Сохранение в базу: ${dbSuccess ? 'успешно' : 'ошибка'}, всего пользователей: ${userCount}`);
+  console.log(`Всего пользователей: ${userCount}`);
   
   // Создаем кнопку
   const keyboard = {
@@ -197,8 +211,7 @@ async function sendBroadcastMessage() {
 bot.onText(/\/broadcast/, async (msg) => {
   const chatId = msg.chat.id;
   
-  // Проверяем что команду отправил администратор
-  if (!ADMIN_IDS.includes(chatId)) {
+  if (!isAdmin(chatId)) {
     return bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
   }
   
@@ -217,4 +230,17 @@ bot.onText(/\/broadcast/, async (msg) => {
   );
 });
 
+// Команда статистики (ТОЛЬКО для админа)
+bot.onText(/\/stats/, async (msg) => {
+  const chatId = msg.chat.id;
+  
+  if (!isAdmin(chatId)) {
+    return bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+  }
+  
+  const userCount = await getUserCount();
+  bot.sendMessage(chatId, `📊 Статистика бота:\n\n👥 Всего пользователей: ${userCount}\n🆔 Ваш ID: ${chatId}`);
+});
+
 console.log('🤖 Бот запущен и ждет сообщения...');
+console.log('👑 Администратор:', ADMIN_IDS[0]);
